@@ -1,4 +1,4 @@
-🧾 this repo contains python scripts that can be used to verify text authorship by examining how familiar the claimed author is with the text content.  
+🧾 these python scripts can verify text authorship by examining claimed authors' familiarity with the text content.  
 🧾 each script starts with a students.tsv file that contains student numbers, student names, and text columns.
   
 here is the initial batch:
