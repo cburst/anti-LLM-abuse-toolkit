@@ -7,7 +7,7 @@ from weasyprint import HTML
 
 # ---------- Configuration ---------- #
 INPUT_TSV = "students.tsv"               # Input TSV with 3 columns, no headers
-OUTPUT_TSV = "students_with_words.tsv"   # Output TSV with 10 extra columns
+OUTPUT_TSV = "answer_key_sentence_completer.tsv"   # Output TSV with 10 extra columns
 QUIZ_PDF_DIR = "quiz"                    # Output directory for quiz PDFs
 KEY_PDF_DIR = "key"                      # Output directory for key PDFs
 TOP_N = 10                               # Number of words to pick

@@ -23,11 +23,11 @@ except LookupError:
 # ===============================
 
 INPUT_TSV = "students.tsv"  # student_id, name, text
-PDF_DIR = "PDFs"
+PDF_DIR = "PDFs-summary-recognizer"
 ANSWER_KEY = "answer_key_summary_recognizer.tsv"
 
 # 🔑 Put your DeepSeek API key here
-DEEPSEEK_API_KEY = "your_deepseek_api_key_here"
+DEEPSEEK_API_KEY = "YOUR-API-KEY-HERE"
 DEEPSEEK_URL = "https://api.deepseek.com/v1/chat/completions"
 DEEPSEEK_MODEL = "deepseek-chat"
 MAX_DEEPSEEK_RETRIES = 5

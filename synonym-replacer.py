@@ -32,12 +32,15 @@ except LookupError:
 # CONFIGURATION
 # -----------------------------
 INPUT_TSV = "students.tsv"       # student_id, name, text
-PDF_DIR = "PDFs"
+PDF_DIR = "PDFs-synonym-replacer"
 ANSWER_KEY = "answer_key_synonym_replacer.tsv"
 FREQ_FILE = "wiki_freq.txt"      # "word count" per line
 NUM_WORDS_TO_REPLACE = 5          # how many words you want replaced
 NUM_CANDIDATE_OBSCURE = 10        # how many rare words to consider
-AVOID_WORDS = {"hufs", "macalister", "minerva"}           # skip HUFS or variants
+AVOID_WORDS = {
+    "hufs", "macalister", "minerva", "students", "learners",
+    "student", "learner", "Hankuk", "University", "Foreign", "Studies"
+}
 
 # Simple English stopwords
 STOPWORDS = {
@@ -54,7 +57,7 @@ STOPWORDS = {
 }
 
 # 🔑 DeepSeek config (fill in your key)
-DEEPSEEK_API_KEY = "your_deepseek_api_key_here"
+DEEPSEEK_API_KEY = "YOUR-API-KEY-HERE"
 DEEPSEEK_URL = "https://api.deepseek.com/v1/chat/completions"
 DEEPSEEK_MODEL = "deepseek-chat"
 DEEPSEEK_MAX_RETRIES = 3
@@ -161,6 +164,26 @@ def find_sentence_and_surface_word(text, word_lower):
         if m:
             return sent, m.group(0)  # surface form in that sentence
     return None, None    
+
+def levenshtein(a, b):
+    """Compute Levenshtein edit distance between strings a and b."""
+    m, n = len(a), len(b)
+    dp = [[0]*(n+1) for _ in range(m+1)]
+
+    for i in range(m+1):
+        dp[i][0] = i
+    for j in range(n+1):
+        dp[0][j] = j
+
+    for i in range(1, m+1):
+        for j in range(1, n+1):
+            cost = 0 if a[i-1] == b[j-1] else 1
+            dp[i][j] = min(
+                dp[i-1][j] + 1,      # deletion
+                dp[i][j-1] + 1,      # insertion
+                dp[i-1][j-1] + cost  # substitution
+            )
+    return dp[m][n]
     
 # -----------------------------
 # Utilities
@@ -230,33 +253,63 @@ def find_obscure_words(text, freq_ranks, num_candidates=NUM_CANDIDATE_OBSCURE):
     
 # ---------- DeepSeek helper ----------
 
-def get_synonym_from_deepseek(surface_word, sentence):
+def get_synonym_from_deepseek(surface_word, sentence, all_words_in_text):
     """
-    Ask DeepSeek for a single-word synonym for surface_word that can
-    replace it in the given sentence without breaking grammar.
-    The synonym should match part of speech, inflection, and casing.
+    DeepSeek synonym generator with:
+      - lowercase-only rule
+      - Levenshtein > 50% difference from original
+      - Levenshtein > 50% difference from *every other word* in text
+      - retries
+    """
 
-    Returns a string or None.
-    """
     if not DEEPSEEK_API_KEY:
         return None
 
+    # -----------------------------
+    # Levenshtein helper
+    # -----------------------------
+    def levenshtein(a, b):
+        m, n = len(a), len(b)
+        dp = [[0] * (n + 1) for _ in range(m + 1)]
+        for i in range(m + 1):
+            dp[i][0] = i
+        for j in range(n + 1):
+            dp[0][j] = j
+        for i in range(1, m + 1):
+            for j in range(1, n + 1):
+                cost = 0 if a[i - 1] == b[j - 1] else 1
+                dp[i][j] = min(
+                    dp[i - 1][j] + 1,
+                    dp[i][j - 1] + 1,
+                    dp[i - 1][j - 1] + cost
+                )
+        return dp[m][n]
+
+    # -----------------------------
+    # Capitalization rule
+    # -----------------------------
+    if any(c.isupper() for c in surface_word):
+        print(f"⚠️ Skipping '{surface_word}' — contains capital letters.")
+        return None
+
+    # -----------------------------
+    # DeepSeek prompts
+    # -----------------------------
     system_prompt = (
         "You are a precise thesaurus assistant. Given an English word as it appears "
-        "inside a sentence, you must produce exactly one synonym that could replace "
-        "that word in the sentence without breaking grammar.\n\n"
+        "inside a sentence, produce exactly one lowercase synonym that can replace "
+        "the original word WITHOUT ANY CAPITAL LETTERS.\n\n"
         "Requirements:\n"
-        "1) The synonym must have the SAME part of speech as the original word.\n"
-        "2) It must have the SAME inflection (singular/plural, verb tense, etc.).\n"
-        "3) It must have the SAME capitalization pattern as the original word.\n"
-        "4) Respond with ONLY the replacement word, no explanation.\n"
-        "5) If there is no good synonym, respond with the original word."
+        "1) Synonym must be lowercase only.\n"
+        "2) Must match part of speech and inflection.\n"
+        "3) Respond with ONLY the replacement word.\n"
+        "4) If no good synonym exists, repeat the original word."
     )
 
     user_prompt = (
         f"Sentence:\n{sentence}\n\n"
-        f"Original word in this sentence: {surface_word}\n\n"
-        "Return exactly one synonym that can replace this word in the sentence."
+        f"Original word: {surface_word}\n\n"
+        "Return a single-word lowercase synonym."
     )
 
     headers = {
@@ -272,48 +325,38 @@ def get_synonym_from_deepseek(surface_word, sentence):
         ],
         "max_tokens": 20,
         "temperature": 0.5,
-        "stream": False,
     }
 
+    surface_lower = surface_word.lower()
     attempt = 0
+
+    # -----------------------------
+    # Threshold for "too similar"
+    # -----------------------------
+    original_threshold = max(1, len(surface_lower) // 2)
+
     while attempt < DEEPSEEK_MAX_RETRIES:
+
+        print("\n----------------------------")
+        print(f"DeepSeek synonym lookup for '{surface_word}' (attempt {attempt+1})")
+        print("Sentence:", sentence)
+
         try:
-            print("\n----------------------------")
-            print(f"DeepSeek synonym lookup for: {surface_word!r} (attempt {attempt+1})")
-            print("Sentence context:")
-            print(sentence)
             resp = requests.post(DEEPSEEK_URL, headers=headers, json=payload, timeout=20)
 
             if resp.status_code >= 400:
-                print(f"⚠️ DeepSeek HTTP {resp.status_code}")
-                print("Response body:")
-                print(resp.text)
+                print(f"⚠️ HTTP {resp.status_code}: {resp.text}")
                 attempt += 1
                 continue
 
-            job = resp.json()
-            text = None
-            if "choices" in job and job["choices"]:
-                choice = job["choices"][0]
-                if "message" in choice and "content" in choice["message"]:
-                    text = choice["message"]["content"]
-                elif "text" in choice:
-                    text = choice["text"]
-            if text is None:
-                text = str(job)
+            data = resp.json()
+            candidate = data["choices"][0]["message"]["content"].strip()
 
-            print("DeepSeek raw content:")
-            print(text)
+            print("DeepSeek raw content:", candidate)
             print("----------------------------")
 
-            lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
-            if not lines:
-                attempt += 1
-                continue
-
-            candidate = lines[0]
-            if (candidate.startswith('"') and candidate.endswith('"')) or \
-               (candidate.startswith("'") and candidate.endswith("'")):
+            # unwrap possible quotes
+            if candidate.startswith(("'", '"')) and candidate.endswith(("'", '"')):
                 candidate = candidate[1:-1].strip()
 
             tokens = re.findall(r"[A-Za-z]+", candidate)
@@ -321,25 +364,74 @@ def get_synonym_from_deepseek(surface_word, sentence):
                 attempt += 1
                 continue
 
-            synonym = tokens[0]
-            # if DeepSeek just echoed the original, reject and retry
-            if synonym.lower() == surface_word.lower():
+            synonym = tokens[0].lower()
+
+            # -----------------------------
+            # Reject uppercase
+            # -----------------------------
+            if any(c.isupper() for c in synonym):
+                print(f"⚠️ Rejected '{synonym}' — contains capitals.")
                 attempt += 1
                 continue
 
-            print(f"Accepted DeepSeek synonym for {surface_word!r}: {synonym}")
+            # -----------------------------
+            # Reject identical
+            # -----------------------------
+            if synonym == surface_lower:
+                print(f"⚠️ Rejected '{synonym}' — same as original.")
+                attempt += 1
+                continue
+
+            # -----------------------------
+            # Reject too similar to original
+            # -----------------------------
+            dist_orig = levenshtein(surface_lower, synonym)
+            if dist_orig <= original_threshold:
+                print(f"⚠️ '{synonym}' too similar to '{surface_lower}' "
+                      f"(dist={dist_orig}, threshold={original_threshold})")
+                attempt += 1
+                continue
+
+            # -----------------------------
+            # Reject too similar to any other word in text
+            # -----------------------------
+            conflict = False
+            for w in all_words_in_text:
+                if w == surface_lower:
+                    continue
+
+                # NEW: 30% threshold (len(w)*0.40)
+                threshold_other = max(1, int(len(w) * 0.30))
+                dist_other = levenshtein(w, synonym)
+
+                if dist_other <= threshold_other:
+                    print(
+                        f"⚠️ '{synonym}' rejected — too similar to '{w}' in text "
+                        f"(dist={dist_other}, threshold={threshold_other})"
+                    )
+                    conflict = True
+                    break
+
+            if conflict:
+                attempt += 1
+                continue
+
+            # -----------------------------
+            # ACCEPT
+            # -----------------------------
+            print(f"✓ Accepted synonym for '{surface_word}': {synonym}")
             return synonym
 
         except Exception as e:
-            print(f"⚠️ DeepSeek error while getting synonym for {surface_word!r}: {e}")
+            print(f"⚠️ DeepSeek error: {e}")
             attempt += 1
 
-    print(f"⚠️ DeepSeek failed to find synonym for {surface_word!r}.")
+    print(f"⚠️ No suitable synonym for '{surface_word}' after retries.")
     return None
 
 
-def get_synonym(surface_word, sentence):
-    return get_synonym_from_deepseek(surface_word, sentence)
+def get_synonym(surface_word, sentence, all_words_in_text):
+    return get_synonym_from_deepseek(surface_word, sentence, all_words_in_text)
 
 
 def replace_word_case_preserving(text, original_lower, synonym):
@@ -360,12 +452,25 @@ def transform_text_with_synonyms(text, freq_ranks):
     1) Find up to NUM_CANDIDATE_OBSCURE rare words.
     2) For each, find a sentence and the surface form of the word.
     3) Ask DeepSeek for a synonym that matches POS + inflection.
-    4) Replace up to NUM_WORDS_TO_REPLACE words in the text.
+    4) Reject synonyms that:
+         - are too similar to the original word
+         - OR too similar to ANY other word in the text
+         - OR contain capitalization
+    5) Replace up to NUM_WORDS_TO_REPLACE words in the text.
 
     Returns:
       modified_text, replacements_list (list of (original_surface, synonym)).
     """
-    candidate_words = find_obscure_words(text, freq_ranks, num_candidates=NUM_CANDIDATE_OBSCURE)
+
+    # ---------------------------------------------
+    # Collect ALL words in the text (lowercased)
+    # Used to avoid synonyms similar to any other word
+    # ---------------------------------------------
+    all_words = set(tokenize_words_lower(text))
+
+    candidate_words = find_obscure_words(
+        text, freq_ranks, num_candidates=NUM_CANDIDATE_OBSCURE
+    )
 
     modified_text = text
     replacements = []
@@ -374,29 +479,30 @@ def transform_text_with_synonyms(text, freq_ranks):
         if len(replacements) >= NUM_WORDS_TO_REPLACE:
             break
 
-        # Find a sentence and surface form (e.g. "Fulfilling" vs "fulfilling")
+        # Find a sentence and the exact surface form
         sentence, surface_word = find_sentence_and_surface_word(modified_text, w_lower)
         if not sentence or not surface_word:
             continue
 
-        synonym = get_synonym(surface_word, sentence)
+        # ---------------------------------------------
+        # NEW: pass all_words to the synonym generator
+        # ---------------------------------------------
+        synonym = get_synonym_from_deepseek(surface_word, sentence, all_words)
         if not synonym:
             continue
 
-        # Replace all occurrences of w_lower with synonym, preserving capitalization per occurrence
+        # Replace all occurrences in text (case-preserving)
         pattern = re.compile(r"\b" + re.escape(w_lower) + r"\b", re.IGNORECASE)
-
         if not pattern.search(modified_text):
             continue
 
         def repl(m):
             orig = m.group(0)
-            # if DeepSeek already matched the casing, just use it;
-            # but we can still adjust for safety:
+            # match casing only AFTER lower/no-cap check is passed
             if orig.isupper():
                 return synonym.upper()
             elif orig[0].isupper():
-                return synonym[0].upper() + synonym[1:]
+                return synonym.capitalize()
             else:
                 return synonym.lower()
 

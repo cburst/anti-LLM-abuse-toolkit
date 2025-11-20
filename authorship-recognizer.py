@@ -24,7 +24,7 @@ except LookupError:
 # ===============================
 
 # 🔑 Hardcode your DeepSeek API key here
-DEEPSEEK_API_KEY = "your DeepSeek API key here"
+DEEPSEEK_API_KEY = "YOUR-API-KEY-HERE"
 
 # DeepSeek chat API endpoint & model
 DEEPSEEK_URL = "https://api.deepseek.com/chat/completions"
@@ -508,7 +508,7 @@ def generate_pdf_for_student(student_id, name, items, out_dir="pdfs_source_id"):
 # 7. Process TSV sequentially
 # ===============================
 
-def process_tsv_for_source_id(input_tsv, pdf_dir="PDFs", answer_key_tsv="answer_key_authorship_recognizer.tsv"):
+def process_tsv_for_source_id(input_tsv, pdf_dir="PDFs-authorship-recognizer", answer_key_tsv="answer_key_authorship_recognizer.tsv"):
     labels = ["A", "B", "C"]
     with open(answer_key_tsv, "w", newline="", encoding="utf-8") as keyfile:
         keywriter = csv.writer(keyfile, delimiter="\t")

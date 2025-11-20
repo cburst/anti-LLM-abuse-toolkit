@@ -71,7 +71,7 @@ def sanitize_filename(name):
     forbidden = r'\/:*?"<>|'
     return "".join(c for c in name if c not in forbidden).strip() or "student"
 
-def generate_pdf_for_student(student_id, name, obscure_words, out_dir="pdfs"):
+def generate_pdf_for_student(student_id, name, obscure_words, out_dir="PDFs-sentence-creator"):
     os.makedirs(out_dir, exist_ok=True)
     safe_name = sanitize_filename(name)
     pdf_path = os.path.join(out_dir, f"{safe_name}.pdf")
@@ -119,7 +119,7 @@ def generate_pdf_for_student(student_id, name, obscure_words, out_dir="pdfs"):
 # -----------------------------
 # 5. TSV Processor
 # -----------------------------
-def process_tsv(input_tsv, output_tsv, freq_file="wiki_freq.txt", top_n=10, pdf_dir="pdfs"):
+def process_tsv(input_tsv, output_tsv, freq_file="wiki_freq.txt", top_n=10, pdf_dir="PDFs-sentence-creator"):
     freq_dict = load_wiki_frequency_dict(freq_file)
 
     with open(input_tsv, newline="", encoding="utf-8") as infile, \
@@ -142,8 +142,8 @@ def process_tsv(input_tsv, output_tsv, freq_file="wiki_freq.txt", top_n=10, pdf_
 # -----------------------------
 if __name__ == "__main__":
     INPUT_TSV = "students.tsv"
-    OUTPUT_TSV = "students_with_obscure.tsv"
+    OUTPUT_TSV = "word_list_sentence-creator.tsv"
     WIKI_FREQ = "wiki_freq.txt"
-    PDF_DIR = "pdfs"
+    PDF_DIR = "PDFs-sentence-creator"
 
     process_tsv(INPUT_TSV, OUTPUT_TSV, WIKI_FREQ, top_n=10, pdf_dir=PDF_DIR)
