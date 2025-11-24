@@ -725,8 +725,8 @@ def generate_hybrid_pdf(student_id, name, final_text, removed_words, replacement
         </div>
 
         <div class='instructions'>
-            <b>20 words have been removed.  
-            Use the 20 words in the grid to reconstruct the text.<br>
+            <b>10 words have been removed.  
+            Use the 10 words in the grid to reconstruct the text.<br>
             Also, 5 words have been replaced.
             Find the 5 new words and provide the 5 original words.</b>
         </div>
