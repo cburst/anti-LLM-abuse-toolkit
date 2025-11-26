@@ -1,5 +1,5 @@
 🧾 these python scripts can address text authorship fidelity by examining claimed authors' familiarity and ability to reconstruct text.  
-🧾 each script starts with a students.tsv file that contains student numbers, student names, and text columns.
+🧾 each script starts with a students.tsv file that contains student numbers, student names, and text columns.  
 🧾 each script generates student test PDFs and answer key(s).
 
 **hybrid tests**  
